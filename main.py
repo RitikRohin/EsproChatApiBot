@@ -29,20 +29,7 @@ app = FastAPI(title="G4F API Bot")
 pyro_app = Client("g4f-bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # --------------------------
-# Request Models
-# --------------------------
-class KeyRequest(BaseModel):
-    username: str
-
-class GenerateRequest(BaseModel):
-    prompt: str
-    chat_id: int
-
-class GivePremiumRequest(BaseModel):
-    user_id: int
-
-# --------------------------
-# Pyrogram Handlers
+# Pyrogram Bot Commands
 # --------------------------
 @pyro_app.on_message(filters.command("start"))
 async def start_command(client, message: Message):
@@ -60,6 +47,7 @@ async def help_button(client, callback_query):
     await callback_query.message.edit_text(
         "📚 **Help:**\n"
         "- `/genkey` → Generate API key (Premium only)\n"
+        "- `/givepremium <user_id>` → Owner can give premium\n"
         "- `/chat` → Chat via bot\n"
         "Press Back to return.",
         reply_markup=keyboard
@@ -74,28 +62,37 @@ async def back_button(client, callback_query):
     )
 
 # --------------------------
-# Owner Endpoint: Give Premium
+# Owner gives premium via bot
 # --------------------------
-@app.post("/give_premium")
-def give_premium(req: GivePremiumRequest, request: Request):
-    telegram_user_id = int(request.headers.get("X-TG-ID", 0))
-    if telegram_user_id != OWNER_ID:
-        raise HTTPException(status_code=403, detail="Only owner can give premium")
-    premium_users.update_one({"user_id": req.user_id}, {"$set": {"premium": True}}, upsert=True)
-    return {"status": "success", "user_id": req.user_id, "message": "Premium granted"}
+@pyro_app.on_message(filters.command("givepremium") & filters.user(OWNER_ID))
+async def give_premium(client, message: Message):
+    if len(message.command) < 2:
+        await message.reply_text("Usage: /givepremium <user_id>")
+        return
+    user_id = int(message.command[1])
+    premium_users.update_one({"user_id": user_id}, {"$set": {"premium": True}}, upsert=True)
+    await message.reply_text(f"✅ User {user_id} has been granted premium.")
 
 # --------------------------
-# Create API Key (Premium Only)
+# Premium user generates API key via bot
 # --------------------------
-@app.post("/create_key")
-def create_key(req: KeyRequest, request: Request):
-    telegram_user_id = int(request.headers.get("X-TG-ID", 0))
-    if not premium_users.find_one({"user_id": telegram_user_id, "premium": True}):
-        raise HTTPException(status_code=403, detail="Only premium users can generate API key")
+@pyro_app.on_message(filters.command("genkey"))
+async def generate_key(client, message: Message):
+    user_id = message.from_user.id
+    if not premium_users.find_one({"user_id": user_id, "premium": True}):
+        await message.reply_text("❌ You are not a premium user.")
+        return
     key = secrets.token_hex(16)
     expires_at = datetime.utcnow() + timedelta(days=30)
-    api_keys.insert_one({"key": key, "username": req.username, "expires_at": expires_at})
-    return {"api_key": key, "expires_at": expires_at.isoformat()}
+    api_keys.insert_one({"key": key, "user_id": user_id, "expires_at": expires_at})
+    await message.reply_text(f"🔑 Your API key:\n`{key}`\nValid until {expires_at}")
+
+# --------------------------
+# Request Models
+# --------------------------
+class GenerateRequest(BaseModel):
+    prompt: str
+    chat_id: int
 
 # --------------------------
 # Generate Message Endpoint
