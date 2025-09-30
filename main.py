@@ -36,150 +36,187 @@ pyro_app = Client(
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    in_memory=True  # Memory session, SQLite-free
+    in_memory=True
 )
-
-# --------------------------
-# Pyrogram Commands with Help Button
-# --------------------------
-@pyro_app.on_message(filters.command("start"))
-async def start_command(client, message: Message):
-    user_id = message.from_user.id
-    is_premium = await db.premium_users.find_one({"user_id": user_id})
-    premium_status = "✅ Premium" if is_premium else "❌ Non-Premium"
-
-    # Only Help button
-    buttons = [
-        [InlineKeyboardButton("Help", callback_data="help")]
-    ]
-
-    await message.reply_text(
-        f"👋 Hello! I am your G4F API Bot.\nYour Status: {premium_status}",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-@pyro_app.on_message(filters.command("help"))
-async def help_command(client, message: Message):
-    user_id = message.from_user.id
-    is_premium = await db.premium_users.find_one({"user_id": user_id})
-    premium_status = "✅ Premium" if is_premium else "❌ Non-Premium"
-
-    # Only Help button
-    buttons = [
-        [InlineKeyboardButton("Help", callback_data="help")]
-    ]
-
-    await message.reply_text(
-        f"📚 Bot Help\nYour Status: {premium_status}\nUse /create_key endpoint to generate API key (Premium Only).",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-# --------------------------
-# Callback for Help Button
-# --------------------------
-@pyro_app.on_callback_query(filters.regex("help"))
-async def help_button(client, callback_query):
-    await callback_query.answer(
-        "Use /create_key to generate your API Key (Premium Only).\n"
-        "Use /g4f/generate to send messages via API.",
-        show_alert=True
-    )
-
-# --------------------------
-# Request Models
-# --------------------------
-class KeyRequest(BaseModel):
-    username: str
-
-class GenerateRequest(BaseModel):
-    prompt: str
-    chat_id: int
-
-class GivePremiumRequest(BaseModel):
-    user_id: int
-
-# --------------------------
-# Helper: Cleanup Expired API Keys
-# --------------------------
-async def cleanup_expired_keys():
-    await db.api_keys.delete_many({"expires_at": {"$lt": datetime.utcnow()}})
-
-# --------------------------
-# Owner Endpoint: Give Premium
-# --------------------------
-@app.post("/give_premium")
-async def give_premium(req: GivePremiumRequest, request: Request):
-    telegram_user_id = request.headers.get("X-TG-ID")
-    if not telegram_user_id or int(telegram_user_id) != OWNER_ID:
-        raise HTTPException(status_code=403, detail="Only owner can give premium")
-    await db.premium_users.update_one(
-        {"user_id": req.user_id},
-        {"$set": {"user_id": req.user_id}},
-        upsert=True
-    )
-    return {"status": "success", "user_id": req.user_id, "message": "Premium granted"}
-
-# --------------------------
-# Create API Key (Premium Only)
-# --------------------------
-@app.post("/create_key")
-async def create_key(req: KeyRequest, request: Request):
-    await cleanup_expired_keys()
-    telegram_user_id = request.headers.get("X-TG-ID")
-    if not telegram_user_id:
-        raise HTTPException(status_code=403, detail="Missing X-TG-ID header")
-    premium_user = await db.premium_users.find_one({"user_id": int(telegram_user_id)})
-    if not premium_user:
-        raise HTTPException(status_code=403, detail="Only premium users can generate API key")
-    key = secrets.token_hex(16)
-    expires_at = datetime.utcnow() + timedelta(days=30)
-    await db.api_keys.insert_one({
-        "api_key": key,
-        "username": req.username,
-        "expires_at": expires_at
-    })
-    return {"api_key": key, "expires_at": expires_at.isoformat()}
-
-# --------------------------
-# Generate Message via Bot
-# --------------------------
-@app.post("/g4f/generate")
-async def generate(req: GenerateRequest, request: Request):
-    await cleanup_expired_keys()
-    api_key = request.headers.get("X-API-Key")
-    if not api_key:
-        raise HTTPException(status_code=401, detail="Missing API Key")
-    key_doc = await db.api_keys.find_one({"api_key": api_key})
-    if not key_doc:
-        raise HTTPException(status_code=401, detail="Invalid API Key")
-    if datetime.utcnow() > key_doc["expires_at"]:
-        raise HTTPException(status_code=403, detail="API Key expired")
-    
-    chat_id = req.chat_id
-    prompt = req.prompt
-    start_message_id = None
-    try:
-        start_msg = await pyro_app.send_message(chat_id, "**✨ Processing your request...**")
-        start_message_id = start_msg.id
-        await pyro_app.send_message(chat_id, prompt)
-        await pyro_app.edit_message_text(
-            chat_id,
-            start_message_id,
-            "✅ **Message sent successfully.**"
-        )
-        return {"status": "success", "sent": prompt, "to": chat_id}
-    except Exception as e:
-        if start_message_id:
-            await pyro_app.edit_message_text(chat_id, start_message_id, f"❌ Failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # --------------------------
 # Startup & Shutdown
 # --------------------------
 @app.on_event("startup")
 async def startup_event():
+    # Start the Pyrogram client in the background
     asyncio.create_task(pyro_app.start())
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    # Stop the Pyrogram client
     await pyro_app.stop()
+
+# --------------------------
+# Pyrogram Commands
+# --------------------------
+@pyro_app.on_message(filters.command("start"))
+async def start_command(client, message: Message):
+    user_id = message.from_user.id
+    # Check premium status
+    is_premium = await db.premium_users.find_one({"user_id": user_id})
+    premium_status = "✅ Premium" if is_premium else "❌ Non-Premium"
+
+    buttons = [
+        [InlineKeyboardButton("Help", callback_data="help")]
+    ]
+
+    await message.reply_text(
+        f"👋 Hello! I am your G4F API Bot.\nYour Status: **{premium_status}**",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+@pyro_app.on_message(filters.command("help"))
+async def help_command(client, message: Message):
+    buttons = [
+        [InlineKeyboardButton("Back", callback_data="back")]
+    ]
+    await message.reply_text(
+        "📚 **Bot Help**\n\n"
+        "- **Premium** users can generate API key using `/genkey`.\n"
+        "- **Owner** can give premium using `/givepremium <user_id>`.\n"
+        "- Use the `/g4f/generate` API endpoint to send messages.",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+# --------------------------
+# Callback Query: Help & Back
+# --------------------------
+@pyro_app.on_callback_query(filters.regex("help"))
+async def help_button(client, callback_query):
+    buttons = [
+        [InlineKeyboardButton("Back", callback_data="back")]
+    ]
+    await callback_query.message.edit_text(
+        "📚 **Bot Help**\n\n"
+        "- **Premium** users can generate API key using `/genkey`.\n"
+        "- **Owner** can give premium using `/givepremium <user_id>`.\n"
+        "- Use the `/g4f/generate` API endpoint to send messages.",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+@pyro_app.on_callback_query(filters.regex("back"))
+async def back_button(client, callback_query):
+    user_id = callback_query.from_user.id
+    is_premium = await db.premium_users.find_one({"user_id": user_id})
+    premium_status = "✅ Premium" if is_premium else "❌ Non-Premium"
+
+    buttons = [
+        [InlineKeyboardButton("Help", callback_data="help")]
+    ]
+
+    await callback_query.message.edit_text(
+        f"👋 Hello! I am your G4F API Bot.\nYour Status: **{premium_status}**",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+# --------------------------
+# Owner: Give Premium Command
+# --------------------------
+@pyro_app.on_message(filters.command("givepremium") & filters.user(OWNER_ID))
+async def give_premium_command(client: Client, message: Message):
+    if len(message.command) != 2:
+        await message.reply_text("Usage: /givepremium <user_id>")
+        return
+    try:
+        user_id = int(message.command[1])
+        # Insert or update user in premium_users collection
+        await db.premium_users.update_one(
+            {"user_id": user_id},
+            {"$set": {"user_id": user_id, "granted_at": datetime.utcnow()}},
+            upsert=True
+        )
+        await message.reply_text(f"✅ User `{user_id}` has been granted premium!")
+    except ValueError:
+        await message.reply_text("❌ Invalid user ID.")
+
+# --------------------------
+# Premium User: Generate API Key (Auto Username)
+# --------------------------
+@pyro_app.on_message(filters.command("genkey"))
+async def generate_api_key(client: Client, message: Message):
+    user_id = message.from_user.id
+    # Check if user is premium
+    premium_user = await db.premium_users.find_one({"user_id": user_id})
+    if not premium_user:
+        await message.reply_text("❌ You are not a premium user.")
+        return
+
+    # Use username or user ID if username is not set
+    username = message.from_user.username or str(user_id)
+    key = secrets.token_hex(16)  # Generate 32-character hex key
+    expires_at = datetime.utcnow() + timedelta(days=30) # Key expires in 30 days
+
+    # Store the new API key
+    await db.api_keys.insert_one({
+        "api_key": key,
+        "username": username,
+        "expires_at": expires_at
+    })
+
+    await message.reply_text(
+        f"✅ API Key generated!\nKey: `{key}`\nValid until: `{expires_at.strftime('%Y-%m-%d %H:%M:%S')} UTC`\n"
+        f"Associated user: `{username}`"
+    )
+
+# --------------------------
+# FastAPI Endpoints (API Key Use)
+# --------------------------
+
+class GenerateRequest(BaseModel):
+    """Pydantic model for the API request body."""
+    prompt: str
+    chat_id: int
+
+@app.post("/g4f/generate")
+async def generate(req: GenerateRequest, request: Request):
+    """
+    API endpoint to generate/send a message to a specific chat via the bot.
+    Requires 'X-API-Key' in headers for authentication.
+    """
+    api_key = request.headers.get("X-API-Key")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Missing API Key")
+    
+    # Validate API Key
+    key_doc = await db.api_keys.find_one({"api_key": api_key})
+    if not key_doc:
+        raise HTTPException(status_code=401, detail="Invalid API Key")
+    
+    # Check for expiration
+    if datetime.utcnow() > key_doc["expires_at"]:
+        raise HTTPException(status_code=403, detail="API Key expired")
+
+    chat_id = req.chat_id
+    prompt = req.prompt
+    start_message_id = None
+    
+    try:
+        # Send a starting message to indicate processing
+        start_msg = await pyro_app.send_message(chat_id, "**✨ Processing your request...**")
+        start_message_id = start_msg.id
+        
+        # Send the actual prompt (simulating the G4F generation/result)
+        await pyro_app.send_message(chat_id, prompt)
+        
+        # Edit the starting message to show success
+        await pyro_app.edit_message_text(
+            chat_id,
+            start_message_id,
+            "✅ **Message sent successfully.**"
+        )
+        
+        return {"status": "success", "sent": prompt, "to": chat_id, "key_user": key_doc["username"]}
+        
+    except Exception as e:
+        # Edit the starting message to show failure if possible
+        if start_message_id:
+            await pyro_app.edit_message_text(chat_id, start_message_id, f"❌ Failed: {e}")
+        
+        # Re-raise as an HTTP exception
+        raise HTTPException(status_code=500, detail=str(e))
