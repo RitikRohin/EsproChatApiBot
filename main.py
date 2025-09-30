@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
-from pyrogram.session import StringSession
+from pyrogram import Client, StringSession, filters
 import secrets, asyncio
 from datetime import datetime, timedelta
 import os
