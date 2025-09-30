@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.session import StringSession
 import secrets, asyncio
 from datetime import datetime, timedelta
 import os
@@ -15,18 +16,48 @@ API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
 MONGO_DB_URI = os.getenv("MONGO_DB_URI")
+STRING_SESSION = os.getenv("STRING_SESSION")  # Heroku safe
 
+# --------------------------
 # MongoDB setup
+# --------------------------
 mongo = MongoClient(MONGO_DB_URI)
 db = mongo.g4f
 premium_users = db.premium_users
 api_keys = db.api_keys
 
+# --------------------------
 # FastAPI init
+# --------------------------
 app = FastAPI(title="G4F MongoDB Bot")
 
-# Pyrogram client
-pyro_app = Client("g4f-bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# --------------------------
+# Pyrogram client using StringSession
+# --------------------------
+pyro_app = Client(
+    StringSession(STRING_SESSION) if STRING_SESSION else "g4f-bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
+# --------------------------
+# Async message queue to prevent concurrent access
+# --------------------------
+message_queue = asyncio.Queue()
+
+async def message_worker():
+    await pyro_app.start()
+    while True:
+        chat_id, text, start_msg_id = await message_queue.get()
+        try:
+            sent_msg = await pyro_app.send_message(chat_id, text)
+            if start_msg_id:
+                await pyro_app.edit_message_text(chat_id, start_msg_id, "✅ Message sent successfully!")
+        except Exception as e:
+            if start_msg_id:
+                await pyro_app.edit_message_text(chat_id, start_msg_id, f"❌ Failed: {e}")
+        message_queue.task_done()
 
 # --------------------------
 # Pyrogram Bot Commands
@@ -70,7 +101,11 @@ async def give_premium(client, message: Message):
         await message.reply_text("Usage: /givepremium <user_id>")
         return
     user_id = int(message.command[1])
-    premium_users.update_one({"user_id": user_id}, {"$set": {"premium": True}}, upsert=True)
+    premium_users.update_one(
+        {"user_id": user_id},
+        {"$set": {"premium": True, "granted_at": datetime.utcnow()}},
+        upsert=True
+    )
     await message.reply_text(f"✅ User {user_id} has been granted premium.")
 
 # --------------------------
@@ -108,22 +143,24 @@ async def generate(req: GenerateRequest, request: Request):
     
     chat_id = req.chat_id
     prompt = req.prompt
-    start_msg = await pyro_app.send_message(chat_id, "**✨ Processing your request...**")
-    
+    # Send "Processing..." message first
     try:
-        await pyro_app.send_message(chat_id, prompt)
-        await pyro_app.edit_message_text(chat_id, start_msg.id, "✅ Message sent successfully!")
-        return {"status": "success", "sent": prompt, "to": chat_id}
-    except Exception as e:
-        await pyro_app.edit_message_text(chat_id, start_msg.id, f"❌ Failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        start_msg = await pyro_app.send_message(chat_id, "**✨ Processing your request...**")
+        start_msg_id = start_msg.id
+    except Exception:
+        start_msg_id = None  # fallback if sending fails
+    
+    # Put message in queue
+    await message_queue.put((chat_id, prompt, start_msg_id))
+    
+    return {"status": "queued", "to": chat_id, "prompt": prompt}
 
 # --------------------------
 # Startup & Shutdown
 # --------------------------
 @app.on_event("startup")
 async def startup_event():
-    asyncio.create_task(pyro_app.start())
+    asyncio.create_task(message_worker())
 
 @app.on_event("shutdown")
 async def shutdown_event():
