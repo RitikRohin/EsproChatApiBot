@@ -23,7 +23,7 @@ premium_users = db.premium_users
 api_keys = db.api_keys
 
 # FastAPI init
-app = FastAPI(title="G4F API Bot")
+app = FastAPI(title="G4F MongoDB Bot")
 
 # Pyrogram client
 pyro_app = Client("g4f-bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -35,8 +35,8 @@ pyro_app = Client("g4f-bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOK
 async def start_command(client, message: Message):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Help", callback_data="help")]])
     await message.reply_text(
-        "👋 Welcome to G4F Bot!\n\n"
-        "Premium users can generate API keys to use the G4F API.\n"
+        "👋 Welcome to Espro Api Bot!\n\n"
+        "Premium users can generate API keys to use the Espro Api.\n"
         "Use the buttons below for help.",
         reply_markup=keyboard
     )
@@ -57,7 +57,7 @@ async def help_button(client, callback_query):
 async def back_button(client, callback_query):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Help", callback_data="help")]])
     await callback_query.message.edit_text(
-        "👋 Welcome to G4F Bot!\n\nUse the buttons below for help.",
+        "👋 Welcome to Espro Api Bot!\n\nUse the buttons below for help.",
         reply_markup=keyboard
     )
 
