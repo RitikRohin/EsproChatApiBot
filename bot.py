@@ -125,16 +125,4 @@ async def callback_handler(client, callback_query):
 # ===== Run Bot =====
 if __name__ == "__main__":
     print("🤖 Espro Key Generator Bot is starting...")
-    app.run()                f"✅ **Your API key:**\n`{key}`\n\n📅 **Valid until:** {expiry}",
-                parse_mode="markdown"
-            )
-
-        except Exception as e:
-            print(f"Error generating key: {e}")
-            await callback_query.message.reply_text("❌ Failed to generate API key. Try again later.")
-
-
-# ===== Run Bot =====
-if __name__ == "__main__":
-    print("🤖 Espro Key Generator Bot is starting...")
     app.run()
