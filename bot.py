@@ -5,7 +5,7 @@ import requests, os
 API_ID = int(os.environ.get("API_ID", "YOUR_API_ID"))
 API_HASH = os.environ.get("API_HASH", "YOUR_API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
-G4F_API_URL = os.environ.get("G4F_API_URL", "https://esproapi.herokuapp.com")
+G4F_API_URL = os.environ.get("G4F_API_URL", "https://your-g4f-app.herokuapp.com")
 
 app = Client("g4f_key_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
