@@ -4,6 +4,7 @@ from pyrogram.enums import ParseMode
 import os
 import httpx
 import json
+import uuid
 
 # ===== Environment Variables =====
 API_ID = int(os.environ.get("API_ID", "123456"))
@@ -36,6 +37,9 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
+# Unique bot ID for API key restriction
+BOT_UNIQUE_ID = str(uuid.uuid4())
+
 # ===== Start Command =====
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client: Client, message: Message):
@@ -48,6 +52,7 @@ async def start_handler(client: Client, message: Message):
 
     buttons = [
         [InlineKeyboardButton("🔑 Generate Key", callback_data="gen_key")],
+        [InlineKeyboardButton("➕ Add Points", callback_data="add_points")],
         [InlineKeyboardButton("📖 Help", callback_data="help")]
     ]
     await message.reply_text(
@@ -107,6 +112,7 @@ async def callback_handler(client, callback_query):
     elif data == "back":
         buttons = [
             [InlineKeyboardButton("🔑 Generate Key", callback_data="gen_key")],
+            [InlineKeyboardButton("➕ Add Points", callback_data="add_points")],
             [InlineKeyboardButton("📖 Help", callback_data="help")]
         ]
         wallet = load_wallet()
@@ -132,9 +138,16 @@ async def callback_handler(client, callback_query):
         # Generate API Key from backend
         try:
             async with httpx.AsyncClient(timeout=10) as session:
-                res = await session.post(f"{G4F_API_URL}/gen_key")
+                res = await session.post(f"{G4F_API_URL}/gen_key", json={"bot_id": BOT_UNIQUE_ID})
                 res.raise_for_status()
                 data = res.json()
+
+            if "error" in data:
+                await callback_query.message.reply_text(
+                    f"❌ {data['error']}",
+                    parse_mode=ParseMode.HTML
+                )
+                return
 
             key = data.get("key")
             expiry = data.get("expiry")
@@ -159,6 +172,18 @@ async def callback_handler(client, callback_query):
                 parse_mode=ParseMode.HTML
             )
 
+    elif data == "add_points":
+        if callback_query.from_user.id != ADMIN_ID:
+            await callback_query.message.reply_text(
+                "❌ You are not authorized to add points.\n"
+                "⚡ Please contact the admin to add points."
+            )
+        else:
+            await callback_query.message.reply_text(
+                "⚡ Admin: Use the command below to add points:\n"
+                "/add_points <user_id> <points>"
+            )
+
 # ===== /gen_key command =====
 @app.on_message(filters.command("gen_key") & filters.private)
 async def gen_key_command(client: Client, message: Message):
@@ -172,18 +197,24 @@ async def gen_key_command(client: Client, message: Message):
         )
         return
 
-    # Generate API Key from backend
     try:
         async with httpx.AsyncClient(timeout=10) as session:
-            res = await session.post(f"{G4F_API_URL}/gen_key")
+            res = await session.post(f"{G4F_API_URL}/gen_key", json={"bot_id": BOT_UNIQUE_ID})
             res.raise_for_status()
             data = res.json()
+
+        if "error" in data:
+            await message.reply_text(
+                f"❌ {data['error']}",
+                parse_mode=ParseMode.HTML
+            )
+            return
 
         key = data.get("key")
         expiry = data.get("expiry")
 
         if not key or not expiry:
-            await message.reply_text("❌ Failed to retrieve API key. Try again later.", parse_mode=ParseMode.HTML)
+            await message.reply_text("❌ Failed to retrieve key. Try again later.", parse_mode=ParseMode.HTML)
             return
 
         await message.reply_text(
@@ -202,7 +233,7 @@ async def add_points(client, message: Message):
     if message.from_user.id != ADMIN_ID:
         await message.reply_text(
             "❌ You are not authorized to add points.\n"
-            "⚡ Please contact the admin to add points to your wallet."
+            "⚡ Please contact the admin to add points."
         )
         return
 
@@ -218,9 +249,3 @@ async def add_points(client, message: Message):
         await message.reply_text(f"✅ Added {points} points to user {user_id}.\n💰 Total points: {wallet[user_id]}", parse_mode=ParseMode.HTML)
 
     except Exception as e:
-        await message.reply_text(f"❌ Error: {e}\nUsage: /add_points <user_id> <points>", parse_mode=ParseMode.HTML)
-
-# ===== Run Bot =====
-if __name__ == "__main__":
-    print("🤖 Espro Key Generator Bot is starting...")
-    app.run()
