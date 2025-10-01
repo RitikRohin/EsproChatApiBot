@@ -1,167 +1,34 @@
-from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
-from pyrogram import Client, StringSession, filters
-import secrets, asyncio
-from datetime import datetime, timedelta
-import os
-from pymongo import MongoClient
+from pyrogram.types import Message
+import requests, os
 
-# --------------------------
-# Config
-# --------------------------
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID"))
-MONGO_DB_URI = os.getenv("MONGO_DB_URI")
-STRING_SESSION = os.getenv("STRING_SESSION")  # Heroku safe
+API_ID = int(os.environ.get("API_ID", "YOUR_API_ID"))
+API_HASH = os.environ.get("API_HASH", "YOUR_API_HASH")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
+G4F_API_URL = os.environ.get("G4F_API_URL", "https://esproapi.herokuapp.com")
 
-# --------------------------
-# MongoDB setup
-# --------------------------
-mongo = MongoClient(MONGO_DB_URI)
-db = mongo.g4f
-premium_users = db.premium_users
-api_keys = db.api_keys
+app = Client("g4f_key_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --------------------------
-# FastAPI init
-# --------------------------
-app = FastAPI(title="G4F MongoDB Bot")
+@app.on_message(filters.command("start") & filters.private)
+async def start_handler(client: Client, message: Message):
+    await message.reply_text("🤖 Welcome to G4F Key Generator Bot!\nUse /gen_key to generate API key.")
 
-# --------------------------
-# Pyrogram client using StringSession
-# --------------------------
-pyro_app = Client(
-    StringSession(STRING_SESSION) if STRING_SESSION else "g4f-bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
+@app.on_message(filters.command("help") & filters.private)
+async def help_handler(client: Client, message: Message):
+    await message.reply_text("/gen_key - Generate a 30-day valid API key")
 
-# --------------------------
-# Async message queue to prevent concurrent access
-# --------------------------
-message_queue = asyncio.Queue()
-
-async def message_worker():
-    await pyro_app.start()
-    while True:
-        chat_id, text, start_msg_id = await message_queue.get()
-        try:
-            sent_msg = await pyro_app.send_message(chat_id, text)
-            if start_msg_id:
-                await pyro_app.edit_message_text(chat_id, start_msg_id, "✅ Message sent successfully!")
-        except Exception as e:
-            if start_msg_id:
-                await pyro_app.edit_message_text(chat_id, start_msg_id, f"❌ Failed: {e}")
-        message_queue.task_done()
-
-# --------------------------
-# Pyrogram Bot Commands
-# --------------------------
-@pyro_app.on_message(filters.command("start"))
-async def start_command(client, message: Message):
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Help", callback_data="help")]])
-    await message.reply_text(
-        "👋 Welcome to Espro Api Bot!\n\n"
-        "Premium users can generate API keys to use the Espro Api.\n"
-        "Use the buttons below for help.",
-        reply_markup=keyboard
-    )
-
-@pyro_app.on_callback_query(filters.regex("help"))
-async def help_button(client, callback_query):
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="back")]])
-    await callback_query.message.edit_text(
-        "📚 **Help:**\n"
-        "- `/genkey` → Generate API key (Premium only)\n"
-        "- `/givepremium <user_id>` → Owner can give premium\n"
-        "- `/chat` → Chat via bot\n"
-        "Press Back to return.",
-        reply_markup=keyboard
-    )
-
-@pyro_app.on_callback_query(filters.regex("back"))
-async def back_button(client, callback_query):
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Help", callback_data="help")]])
-    await callback_query.message.edit_text(
-        "👋 Welcome to Espro Api Bot!\n\nUse the buttons below for help.",
-        reply_markup=keyboard
-    )
-
-# --------------------------
-# Owner gives premium via bot
-# --------------------------
-@pyro_app.on_message(filters.command("givepremium") & filters.user(OWNER_ID))
-async def give_premium(client, message: Message):
-    if len(message.command) < 2:
-        await message.reply_text("Usage: /givepremium <user_id>")
-        return
-    user_id = int(message.command[1])
-    premium_users.update_one(
-        {"user_id": user_id},
-        {"$set": {"premium": True, "granted_at": datetime.utcnow()}},
-        upsert=True
-    )
-    await message.reply_text(f"✅ User {user_id} has been granted premium.")
-
-# --------------------------
-# Premium user generates API key via bot
-# --------------------------
-@pyro_app.on_message(filters.command("genkey"))
-async def generate_key(client, message: Message):
-    user_id = message.from_user.id
-    if not premium_users.find_one({"user_id": user_id, "premium": True}):
-        await message.reply_text("❌ You are not a premium user.")
-        return
-    key = secrets.token_hex(16)
-    expires_at = datetime.utcnow() + timedelta(days=30)
-    api_keys.insert_one({"key": key, "user_id": user_id, "expires_at": expires_at})
-    await message.reply_text(f"🔑 Your API key:\n`{key}`\nValid until {expires_at}")
-
-# --------------------------
-# Request Models
-# --------------------------
-class GenerateRequest(BaseModel):
-    prompt: str
-    chat_id: int
-
-# --------------------------
-# Generate Message Endpoint
-# --------------------------
-@app.post("/g4f/generate")
-async def generate(req: GenerateRequest, request: Request):
-    api_key = request.headers.get("X-API-Key")
-    key_data = api_keys.find_one({"key": api_key})
-    if not key_data:
-        raise HTTPException(status_code=401, detail="Invalid or missing API Key")
-    if datetime.utcnow() > key_data["expires_at"]:
-        raise HTTPException(status_code=403, detail="API key expired")
-    
-    chat_id = req.chat_id
-    prompt = req.prompt
-    # Send "Processing..." message first
+@app.on_message(filters.command("gen_key") & filters.private)
+async def gen_key_handler(client: Client, message: Message):
     try:
-        start_msg = await pyro_app.send_message(chat_id, "**✨ Processing your request...**")
-        start_msg_id = start_msg.id
-    except Exception:
-        start_msg_id = None  # fallback if sending fails
-    
-    # Put message in queue
-    await message_queue.put((chat_id, prompt, start_msg_id))
-    
-    return {"status": "queued", "to": chat_id, "prompt": prompt}
+        res = requests.post(f"{G4F_API_URL}/gen_key")
+        res.raise_for_status()
+        data = res.json()
+        key = data.get("key")
+        expiry = data.get("expiry")
+        await message.reply_text(f"✅ Your API key:\n`{key}`\nValid until: {expiry}", parse_mode="markdown")
+    except Exception as e:
+        await message.reply_text(f"❌ Error generating key: {e}")
 
-# --------------------------
-# Startup & Shutdown
-# --------------------------
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(message_worker())
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await pyro_app.stop()
+if __name__ == "__main__":
+    print("Telegram Key Generator Bot starting...")
+    app.run()
