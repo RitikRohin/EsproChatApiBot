@@ -4,3 +4,4 @@ requests
 pyrogram
 tgcrypto
 g4f
+httpx
