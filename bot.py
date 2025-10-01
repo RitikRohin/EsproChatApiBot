@@ -21,11 +21,12 @@ async def start_handler(client: Client, message: Message):
         [InlineKeyboardButton("📖 Help", callback_data="help")]
     ]
     await message.reply_text(
-        "🤖 **Welcome to Espro Key Generator Bot!**\n\n"
+        "🤖 <b>Welcome to Espro Key Generator Bot!</b>\n\n"
         "🔹 Easily generate a 30-day valid API key.\n"
         "🔹 Use it for your Espro-based applications.\n\n"
         "👇 Choose an option below:",
-        reply_markup=InlineKeyboardMarkup(buttons)
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode="html"
     )
 
 
@@ -34,11 +35,12 @@ async def start_handler(client: Client, message: Message):
 async def help_handler(client: Client, message: Message):
     buttons = [[InlineKeyboardButton("⬅️ Back", callback_data="back")]]
     await message.reply_text(
-        "📌 **Available Commands:**\n\n"
-        "✅ `/gen_key` → Generate a 30-day valid API key\n"
-        "✅ `/help` → Show this help menu\n\n"
+        "📌 <b>Available Commands:</b>\n\n"
+        "✅ <code>/gen_key</code> → Generate a 30-day valid API key\n"
+        "✅ <code>/help</code> → Show this help menu\n\n"
         "⚡ You can also use the buttons below for easy navigation.",
-        reply_markup=InlineKeyboardMarkup(buttons)
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode="html"
     )
 
 
@@ -59,8 +61,8 @@ async def gen_key_handler(client: Client, message: Message):
             return
 
         await message.reply_text(
-            f"✅ **Your API key:**\n`{key}`\n\n📅 **Valid until:** {expiry}",
-            parse_mode="markdown"
+            f"✅ <b>Your API key:</b>\n<code>{key}</code>\n\n📅 <b>Valid until:</b> {expiry}",
+            parse_mode="html"
         )
 
     except Exception as e:
@@ -76,11 +78,12 @@ async def callback_handler(client, callback_query):
     if data == "help":
         buttons = [[InlineKeyboardButton("⬅️ Back", callback_data="back")]]
         await callback_query.message.edit_text(
-            "📌 **Available Commands:**\n\n"
-            "✅ `/gen_key` → Generate a 30-day valid API key\n"
-            "✅ `/help` → Show this help menu\n\n"
+            "📌 <b>Available Commands:</b>\n\n"
+            "✅ <code>/gen_key</code> → Generate a 30-day valid API key\n"
+            "✅ <code>/help</code> → Show this help menu\n\n"
             "⚡ You can also use the buttons below for easy navigation.",
-            reply_markup=InlineKeyboardMarkup(buttons)
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="html"
         )
 
     elif data == "back":
@@ -89,9 +92,10 @@ async def callback_handler(client, callback_query):
             [InlineKeyboardButton("📖 Help", callback_data="help")]
         ]
         await callback_query.message.edit_text(
-            "🤖 **Welcome back to Espro Key Generator Bot!**\n\n"
+            "🤖 <b>Welcome back to Espro Key Generator Bot!</b>\n\n"
             "👇 Choose an option below:",
-            reply_markup=InlineKeyboardMarkup(buttons)
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="html"
         )
 
     elif data == "gen_key":
@@ -109,7 +113,19 @@ async def callback_handler(client, callback_query):
                 return
 
             await callback_query.message.reply_text(
-                f"✅ **Your API key:**\n`{key}`\n\n📅 **Valid until:** {expiry}",
+                f"✅ <b>Your API key:</b>\n<code>{key}</code>\n\n📅 <b>Valid until:</b> {expiry}",
+                parse_mode="html"
+            )
+
+        except Exception as e:
+            print(f"Error generating key: {e}")
+            await callback_query.message.reply_text("❌ Failed to generate API key. Try again later.")
+
+
+# ===== Run Bot =====
+if __name__ == "__main__":
+    print("🤖 Espro Key Generator Bot is starting...")
+    app.run()                f"✅ **Your API key:**\n`{key}`\n\n📅 **Valid until:** {expiry}",
                 parse_mode="markdown"
             )
 
