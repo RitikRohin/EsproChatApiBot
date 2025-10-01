@@ -9,7 +9,6 @@ import uuid
 # ===== Payment Configuration (CHANGE THESE) =====
 # 🛑 IMPORTANT: Replace this with the public URL of your QR code image.
 # NOTE: ibb.co links often point to an HTML page, not the direct image URL. 
-# Make sure this link ends in .jpg, .png, etc., or it will fail to send the photo.
 QR_CODE_IMAGE_URL = "https://ibb.co/zTPBVQxq" 
 # 🛑 IMPORTANT: Replace this with your actual UPI ID.
 YOUR_UPI_ID = "ritikrohin@airtel"
@@ -189,8 +188,8 @@ async def add_points(client, message: Message):
             "⚡ **Usage:** `/add_points <user_id> <points>`"
         )
         
-# --- FIXED FILTER HERE (Called filters.command() to fix TypeError) ---
-@app.on_message(filters.text & filters.private & ~filters.command())
+# --- FIXED FILTER HERE (Passing an argument to filters.command) ---
+@app.on_message(filters.text & filters.private & ~filters.command(["utr_placeholder"]))
 async def utr_submission_handler(client, message: Message):
     """Handles text messages and checks if the user is submitting a UTR."""
     user_id = str(message.from_user.id)
