@@ -1,5 +1,6 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.enums import ParseMode
 import os
 import httpx
 
@@ -10,7 +11,12 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "your_bot_token")
 G4F_API_URL = os.environ.get("G4F_API_URL", "https://your-g4f-app.herokuapp.com")
 
 # ===== Initialize Pyrogram Client =====
-app = Client("g4f_key_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client(
+    "g4f_key_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
 
 # ===== Start Command =====
@@ -26,7 +32,7 @@ async def start_handler(client: Client, message: Message):
         "🔹 Use it for your Espro-based applications.\n\n"
         "👇 Choose an option below:",
         reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode="html"
+        parse_mode=ParseMode.HTML
     )
 
 
@@ -40,7 +46,7 @@ async def help_handler(client: Client, message: Message):
         "✅ <code>/help</code> → Show this help menu\n\n"
         "⚡ You can also use the buttons below for easy navigation.",
         reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode="html"
+        parse_mode=ParseMode.HTML
     )
 
 
@@ -62,7 +68,7 @@ async def gen_key_handler(client: Client, message: Message):
 
         await message.reply_text(
             f"✅ <b>Your API key:</b>\n<code>{key}</code>\n\n📅 <b>Valid until:</b> {expiry}",
-            parse_mode="html"
+            parse_mode=ParseMode.HTML
         )
 
     except Exception as e:
@@ -83,7 +89,7 @@ async def callback_handler(client, callback_query):
             "✅ <code>/help</code> → Show this help menu\n\n"
             "⚡ You can also use the buttons below for easy navigation.",
             reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode="html"
+            parse_mode=ParseMode.HTML
         )
 
     elif data == "back":
@@ -95,7 +101,7 @@ async def callback_handler(client, callback_query):
             "🤖 <b>Welcome back to Espro Key Generator Bot!</b>\n\n"
             "👇 Choose an option below:",
             reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode="html"
+            parse_mode=ParseMode.HTML
         )
 
     elif data == "gen_key":
@@ -114,7 +120,7 @@ async def callback_handler(client, callback_query):
 
             await callback_query.message.reply_text(
                 f"✅ <b>Your API key:</b>\n<code>{key}</code>\n\n📅 <b>Valid until:</b> {expiry}",
-                parse_mode="html"
+                parse_mode=ParseMode.HTML
             )
 
         except Exception as e:
