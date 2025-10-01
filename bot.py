@@ -8,7 +8,6 @@ import uuid
 
 # ===== Payment Configuration (CHANGE THESE) =====
 # 🛑 IMPORTANT: Replace this with the public URL of your QR code image.
-# NOTE: ibb.co links often point to an HTML page, not the direct image URL. 
 QR_CODE_IMAGE_URL = "https://ibb.co/zTPBVQxq" 
 # 🛑 IMPORTANT: Replace this with your actual UPI ID.
 YOUR_UPI_ID = "ritikrohin@airtel"
@@ -27,6 +26,9 @@ WALLET_FILE = "wallet.json"
 # Dictionary to temporarily track users who are submitting a UTR
 user_states = {} 
 
+# ===== UTR Log File (To prevent duplicate submissions) =====
+UTR_LOG_FILE = "utr_log.json"
+
 def load_wallet():
     """Loads the user wallet data from a JSON file."""
     try:
@@ -39,6 +41,21 @@ def save_wallet(wallet):
     """Saves the user wallet data to a JSON file."""
     with open(WALLET_FILE, "w") as f:
         json.dump(wallet, f)
+
+def load_utr_log():
+    """Loads the UTR log data from a JSON file."""
+    try:
+        with open(UTR_LOG_FILE, "r") as f:
+            # UTRs ko set mein store karte hain taaki checking tez ho
+            return set(json.load(f))
+    except FileNotFoundError:
+        return set()
+
+def save_utr_log(utr_set):
+    """Saves the UTR set to a JSON file."""
+    # JSON mein save karne ke liye set ko list mein badalte hain
+    with open(UTR_LOG_FILE, "w") as f:
+        json.dump(list(utr_set), f)
 
 # ===== Initialize Pyrogram Client =====
 app = Client(
@@ -188,24 +205,57 @@ async def add_points(client, message: Message):
             "⚡ **Usage:** `/add_points <user_id> <points>`"
         )
         
-# --- FIXED FILTER HERE (Passing an argument to filters.command) ---
+# --- UTR Submission Handler (with Finalized Duplicate Check) ---
 @app.on_message(filters.text & filters.private & ~filters.command(["utr_placeholder"]))
 async def utr_submission_handler(client, message: Message):
     """Handles text messages and checks if the user is submitting a UTR."""
     user_id = str(message.from_user.id)
     
     if user_id in user_states and user_states[user_id]['action'] == 'submit_utr':
-        utr_id = message.text.strip()
+        utr_id = message.text.strip().upper() 
         points_to_add = user_states[user_id]['points']
 
-        # Simple check if the UTR looks like a number/code
+        # 1. Simple UTR format check
         if not utr_id.isalnum() or len(utr_id) < 10:
             await message.reply_text(
                 "❌ **Invalid UTR.** Kripya sirf sahi Transaction ID (number ya code) hi dalein."
             )
             return
+        
+        # 2. Duplicate UTR check (Prevents same UTR from any user)
+        utr_log = load_utr_log()
+        if utr_id in utr_log:
+            
+            # 🛑 User को submission state से बाहर निकाल दें
+            del user_states[user_id] 
+            
+            # ADMIN को NOTIFICATION भेजें
+            await client.send_message(
+                ADMIN_ID,
+                f"⚠️ **DUPLICATE UTR SUBMISSION ATTEMPT**\n\n"
+                f"👤 Attempting User: {message.from_user.mention} (<code>{user_id}</code>)\n"
+                f"🔑 **Duplicate UTR:** <code>{utr_id}</code>\n"
+                f"❕ **Action:** Bot ne user ko rok diya hai. Yeh UTR pehle hi submit ho chuka hai.",
+                parse_mode=ParseMode.HTML
+            )
+            
+            # User को warning और Back to Menu button दें
+            await message.reply_text(
+                "⚠️ **Yeh Transaction ID pehle hi submit ho chuki hai.**\n"
+                "Aapka UTR submission process ab band kar diya gaya hai. Kripya **Back to Menu** button use karein.\n\n"
+                "Agar aapka points abhi tak add nahi hua hai, to kripya Admin se sampark karein.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back")]
+                ])
+            )
+            return
 
-        # Send UTR to Admin
+        # 3. UTR ko log mein save karein (safaltapoorvak submit hone ke baad)
+        utr_log.add(utr_id)
+        save_utr_log(utr_log)
+        
+        # 4. Send UTR to Admin (Original Submission)
         await client.send_message(
             ADMIN_ID,
             f"🔔 **NEW UTR RECEIVED**\n\n"
@@ -217,7 +267,7 @@ async def utr_submission_handler(client, message: Message):
             parse_mode=ParseMode.HTML
         )
 
-        # Confirm to User
+        # 5. Confirm to User
         await message.reply_text(
             "✅ **UTR Safaltapoorvak Submit ho gaya hai!**\n"
             f"Aapki Transaction ID (<code>{utr_id}</code>) Admin ko bhej di gayi hai.\n\n"
@@ -225,7 +275,7 @@ async def utr_submission_handler(client, message: Message):
             , parse_mode=ParseMode.HTML
         )
 
-        # Clear the user's state
+        # 6. Clear the user's state
         del user_states[user_id]
 
 
@@ -286,7 +336,7 @@ async def callback_handler(client, callback_query):
     elif data == "show_payment_menu":
         buttons = [
             [InlineKeyboardButton("💵 ₹100 = 100 Points", callback_data="pay_100_100")],
-            [InlineKeyboardButton("💵 ₹200 = 200 Points", callback_data="pay_200_200")],
+            [InlineKeyboardButton("💵 ₹200 = 250 Points", callback_data="pay_200_250")],
             [InlineKeyboardButton("⬅️ Back", callback_data="back")]
         ]
         await callback_query.message.edit_text(
@@ -306,6 +356,7 @@ async def callback_handler(client, callback_query):
             
             await callback_query.message.delete()
             
+            # NOTE: QR_CODE_IMAGE_URL should be a direct link to the image (ending in .jpg, .png etc.)
             await client.send_photo(
                 chat_id=callback_query.message.chat.id,
                 photo=QR_CODE_IMAGE_URL,
@@ -327,16 +378,6 @@ async def callback_handler(client, callback_query):
     # --- UTR Submission Starter ---
     elif data.startswith("submit_utr_"):
         points_to_add = data.split('_')[2]
-        
-        # Admin is notified immediately upon submission request
-        await client.send_message(
-            ADMIN_ID, 
-            f"⚠️ **New UTR Submission Request!**\n"
-            f"User ID: <code>{user_id}</code>\n"
-            f"Expected Points: {points_to_add}\n"
-            f"Admin, payment check karne ke baad points add karne ke liye ready rahein.",
-            parse_mode=ParseMode.HTML
-        )
         
         # Inform the user and set their state to expect the UTR
         await callback_query.message.reply_text(
