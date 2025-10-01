@@ -7,18 +7,20 @@ import json
 import uuid
 
 # ===== Environment Variables =====
+# NOTE: Replace "123456", "your_api_hash", and "your_bot_token" with your actual credentials.
 API_ID = int(os.environ.get("API_ID", "123456"))
 API_HASH = os.environ.get("API_HASH", "your_api_hash")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "your_bot_token")
 G4F_API_URL = os.environ.get("G4F_API_URL", "https://your-g4f-app.herokuapp.com")
 
 # ===== Admin User ID =====
-ADMIN_ID = 7666870729  # Replace with your Telegram ID
+ADMIN_ID = 123456789  # Replace with your Telegram ID
 
 # ===== Wallet File =====
 WALLET_FILE = "wallet.json"
 
 def load_wallet():
+    """Loads the user wallet data from a JSON file."""
     try:
         with open(WALLET_FILE, "r") as f:
             return json.load(f)
@@ -26,6 +28,7 @@ def load_wallet():
         return {}
 
 def save_wallet(wallet):
+    """Saves the user wallet data to a JSON file."""
     with open(WALLET_FILE, "w") as f:
         json.dump(wallet, f)
 
@@ -37,49 +40,13 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# Unique bot ID for API key restriction
+# Unique bot ID for API key restriction (sent to G4F backend)
 BOT_UNIQUE_ID = str(uuid.uuid4())
 
-# ===== Start Command =====
-@app.on_message(filters.command("start") & filters.private)
-async def start_handler(client: Client, message: Message):
-    wallet = load_wallet()
-    user_id = str(message.from_user.id)
+# ===== Core Logic =====
 
-    if user_id not in wallet:
-        wallet[user_id] = 100  # First time bonus
-        save_wallet(wallet)
-
-    buttons = [
-        [InlineKeyboardButton("🔑 Generate Key", callback_data="gen_key")],
-        [InlineKeyboardButton("➕ Add Points", callback_data="add_points")],
-        [InlineKeyboardButton("📖 Help", callback_data="help")]
-    ]
-    await message.reply_text(
-        f"🤖 <b>Welcome to Espro Key Generator Bot!</b>\n\n"
-        f"💰 Your wallet: <b>{wallet[user_id]}</b> points\n"
-        f"🔹 Generating an API key requires 300 points.\n\n"
-        "👇 Choose an option below:",
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=ParseMode.HTML
-    )
-
-# ===== Help Command =====
-@app.on_message(filters.command("help") & filters.private)
-async def help_handler(client: Client, message: Message):
-    buttons = [[InlineKeyboardButton("⬅️ Back", callback_data="back")]]
-    await message.reply_text(
-        "📌 <b>Available Commands:</b>\n\n"
-        "✅ <code>/gen_key</code> → Generate a 30-day valid API key (300 points)\n"
-        "✅ <code>/help</code> → Show this help menu\n"
-        "✅ <code>/add_points &lt;user_id&gt; &lt;points&gt;</code> → Add points (Admin only)\n\n"
-        "⚡ You can also use the buttons below for navigation.",
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=ParseMode.HTML
-    )
-
-# ===== Gen Key Logic =====
 async def gen_key_logic(user_id):
+    """Handles point deduction before attempting key generation."""
     wallet = load_wallet()
     points = wallet.get(user_id, 0)
 
@@ -91,102 +58,71 @@ async def gen_key_logic(user_id):
     save_wallet(wallet)
     return True, wallet[user_id]
 
-# ===== Callback Handler =====
-@app.on_callback_query()
-async def callback_handler(client, callback_query):
-    data = callback_query.data
-    user_id = str(callback_query.from_user.id)
 
-    if data == "help":
-        buttons = [[InlineKeyboardButton("⬅️ Back", callback_data="back")]]
-        await callback_query.message.edit_text(
-            "📌 <b>Available Commands:</b>\n\n"
-            "✅ <code>/gen_key</code> → Generate a 30-day valid API key (300 points)\n"
-            "✅ <code>/help</code> → Show this help menu\n"
-            "✅ <code>/add_points &lt;user_id&gt; &lt;points&gt;</code> → Add points (Admin only)\n\n"
-            "⚡ Use the buttons below for navigation.",
-            reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode=ParseMode.HTML
-        )
+# ===== Command Handlers =====
 
-    elif data == "back":
-        buttons = [
-            [InlineKeyboardButton("🔑 Generate Key", callback_data="gen_key")],
-            [InlineKeyboardButton("➕ Add Points", callback_data="add_points")],
-            [InlineKeyboardButton("📖 Help", callback_data="help")]
-        ]
-        wallet = load_wallet()
-        points = wallet.get(user_id, 0)
-        await callback_query.message.edit_text(
-            f"🤖 <b>Welcome back to Espro Key Generator Bot!</b>\n\n"
-            f"💰 Your wallet: <b>{points}</b> points\n"
-            "👇 Choose an option below:",
-            reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode=ParseMode.HTML
-        )
+@app.on_message(filters.command("start") & filters.private)
+async def start_handler(client: Client, message: Message):
+    """Handles the /start command."""
+    wallet = load_wallet()
+    user_id = str(message.from_user.id)
 
-    elif data == "gen_key":
-        success, points_left = await gen_key_logic(user_id)
-        if not success:
-            await callback_query.message.reply_text(
-                f"❌ You need 300 points to generate an API key.\n"
-                f"💰 Your current points: {points_left}",
-                parse_mode=ParseMode.HTML
-            )
-            return
+    if user_id not in wallet:
+        wallet[user_id] = 100  # First time bonus
+        save_wallet(wallet)
 
-        # Generate API Key from backend
-        try:
-            async with httpx.AsyncClient(timeout=10) as session:
-                res = await session.post(f"{G4F_API_URL}/gen_key", json={"bot_id": BOT_UNIQUE_ID})
-                res.raise_for_status()
-                data = res.json()
+    buttons = [
+        [InlineKeyboardButton("🔑 Generate Key", callback_data="gen_key")],
+        [InlineKeyboardButton("💰 Check Points", callback_data="check_points")],
+        [InlineKeyboardButton("➕ Add Points", callback_data="admin_add_points_menu")],
+        [InlineKeyboardButton("📖 Help", callback_data="help")]
+    ]
+    await message.reply_text(
+        f"🤖 <b>Welcome to Espro Key Generator Bot!</b>\n\n"
+        f"💰 Your wallet: <b>{wallet[user_id]}</b> points\n"
+        f"🔹 Generating an API key requires 300 points.\n\n"
+        "👇 Choose an option below:",
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=ParseMode.HTML
+    )
 
-            if "error" in data:
-                await callback_query.message.reply_text(
-                    f"❌ {data['error']}",
-                    parse_mode=ParseMode.HTML
-                )
-                return
+@app.on_message(filters.command(["points", "balance"]) & filters.private)
+async def check_points_command(client: Client, message: Message):
+    """Handles /points or /balance command."""
+    user_id = str(message.from_user.id)
+    wallet = load_wallet()
+    points = wallet.get(user_id, 0)
+    
+    buttons = [
+        [InlineKeyboardButton("🔑 Generate Key", callback_data="gen_key")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+    ]
 
-            key = data.get("key")
-            expiry = data.get("expiry")
+    await message.reply_text(
+        f"💰 **Your Current Wallet Balance:**\n"
+        f"**{points}** points",
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=ParseMode.HTML
+    )
 
-            if not key or not expiry:
-                await callback_query.message.reply_text(
-                    "❌ Failed to retrieve API key. Try again later.",
-                    parse_mode=ParseMode.HTML
-                )
-                return
+@app.on_message(filters.command("help") & filters.private)
+async def help_handler(client: Client, message: Message):
+    """Handles the /help command."""
+    buttons = [[InlineKeyboardButton("⬅️ Back", callback_data="back")]]
+    await message.reply_text(
+        "📌 <b>Available Commands:</b>\n\n"
+        "✅ <code>/gen_key</code> → Generate a 30-day valid API key (300 points)\n"
+        "✅ <code>/points</code> or <code>/balance</code> → Check your current points\n"
+        "✅ <code>/help</code> → Show this help menu\n"
+        "✅ <code>/add_points &lt;user_id&gt; &lt;points&gt;</code> → Add points (Admin only)\n\n"
+        "⚡ You can also use the buttons below for navigation.",
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=ParseMode.HTML
+    )
 
-            await callback_query.message.reply_text(
-                f"✅ <b>Your API key:</b>\n<code>{key}</code>\n\n📅 <b>Valid until:</b> {expiry}\n"
-                f"💰 Remaining points: <b>{points_left}</b>",
-                parse_mode=ParseMode.HTML
-            )
-
-        except Exception as e:
-            print(f"Error generating key: {e}")
-            await callback_query.message.reply_text(
-                "❌ Failed to generate API key. Try again later.",
-                parse_mode=ParseMode.HTML
-            )
-
-    elif data == "add_points":
-        if callback_query.from_user.id != ADMIN_ID:
-            await callback_query.message.reply_text(
-                "❌ You are not authorized to add points.\n"
-                "⚡ Please contact the admin to add points."
-            )
-        else:
-            await callback_query.message.reply_text(
-                "⚡ Admin: Use the command below to add points:\n"
-                "/add_points <user_id> <points>"
-            )
-
-# ===== /gen_key command =====
 @app.on_message(filters.command("gen_key") & filters.private)
 async def gen_key_command(client: Client, message: Message):
+    """Handles the /gen_key command and calls the API."""
     user_id = str(message.from_user.id)
     success, points_left = await gen_key_logic(user_id)
     if not success:
@@ -199,15 +135,13 @@ async def gen_key_command(client: Client, message: Message):
 
     try:
         async with httpx.AsyncClient(timeout=10) as session:
+            # Sends BOT_UNIQUE_ID for backend security check
             res = await session.post(f"{G4F_API_URL}/gen_key", json={"bot_id": BOT_UNIQUE_ID})
             res.raise_for_status()
             data = res.json()
 
         if "error" in data:
-            await message.reply_text(
-                f"❌ {data['error']}",
-                parse_mode=ParseMode.HTML
-            )
+            await message.reply_text(f"❌ {data['error']}", parse_mode=ParseMode.HTML)
             return
 
         key = data.get("key")
@@ -230,11 +164,9 @@ async def gen_key_command(client: Client, message: Message):
 # ===== Admin Command: Add Points =====
 @app.on_message(filters.command("add_points") & filters.private)
 async def add_points(client, message: Message):
+    """Admin command to add points to a user's wallet."""
     if message.from_user.id != ADMIN_ID:
-        await message.reply_text(
-            "❌ You are not authorized to add points.\n"
-            "⚡ Please contact the admin to add points."
-        )
+        await message.reply_text("❌ You are not authorized to add points.")
         return
 
     try:
@@ -249,3 +181,119 @@ async def add_points(client, message: Message):
         await message.reply_text(f"✅ Added {points} points to user {user_id}.\n💰 Total points: {wallet[user_id]}", parse_mode=ParseMode.HTML)
 
     except Exception as e:
+        print(f"Error adding points: {e}")
+        await message.reply_text(
+            "❌ Invalid command usage.\n"
+            "⚡ **Usage:** `/add_points <user_id> <points>`"
+        )
+
+
+# ===== Callback Handler =====
+
+@app.on_callback_query()
+async def callback_handler(client, callback_query):
+    data = callback_query.data
+    user_id = str(callback_query.from_user.id)
+    wallet = load_wallet()
+
+    if data == "help":
+        buttons = [[InlineKeyboardButton("⬅️ Back", callback_data="back")]]
+        await callback_query.message.edit_text(
+            "📌 <b>Available Commands:</b>\n\n"
+            "✅ <code>/gen_key</code> → Generate a 30-day valid API key (300 points)\n"
+            "✅ <code>/points</code> or <code>/balance</code> → Check your current points\n"
+            "✅ <code>/help</code> → Show this help menu\n"
+            "✅ <code>/add_points &lt;user_id&gt; &lt;points&gt;</code> → Add points (Admin only)\n\n"
+            "⚡ Use the buttons below for navigation.",
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=ParseMode.HTML
+        )
+
+    elif data == "back":
+        points = wallet.get(user_id, 0)
+        buttons = [
+            [InlineKeyboardButton("🔑 Generate Key", callback_data="gen_key")],
+            [InlineKeyboardButton("💰 Check Points", callback_data="check_points")],
+            [InlineKeyboardButton("➕ Add Points", callback_data="admin_add_points_menu")],
+            [InlineKeyboardButton("📖 Help", callback_data="help")]
+        ]
+        await callback_query.message.edit_text(
+            f"🤖 <b>Welcome back to Espro Key Generator Bot!</b>\n\n"
+            f"💰 Your wallet: <b>{points}</b> points\n"
+            "👇 Choose an option below:",
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=ParseMode.HTML
+        )
+    
+    elif data == "check_points":
+        points = wallet.get(user_id, 0)
+        
+        buttons = [
+            [InlineKeyboardButton("🔑 Generate Key", callback_data="gen_key")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        ]
+
+        await callback_query.message.edit_text(
+            f"💰 **Your Current Wallet Balance:**\n"
+            f"**{points}** points\n\n"
+            f"🔹 API Key generation costs 300 points.",
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=ParseMode.HTML
+        )
+        
+    elif data == "admin_add_points_menu":
+        if callback_query.from_user.id != ADMIN_ID:
+            await callback_query.answer("❌ You are not authorized to use this function.", show_alert=True)
+            return
+        else:
+            await callback_query.message.reply_text(
+                "⚡ Admin: Use the command below to add points:\n"
+                "<code>/add_points &lt;user_id&gt; &lt;points&gt;</code>",
+                parse_mode=ParseMode.HTML
+            )
+            
+    elif data == "gen_key":
+        success, points_left = await gen_key_logic(user_id)
+        if not success:
+            await callback_query.message.reply_text(
+                f"❌ You need 300 points to generate an API key.\n"
+                f"💰 Your current points: {points_left}",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        # Generate API Key from backend
+        try:
+            async with httpx.AsyncClient(timeout=10) as session:
+                res = await session.post(f"{G4F_API_URL}/gen_key", json={"bot_id": BOT_UNIQUE_ID})
+                res.raise_for_status()
+                data = res.json()
+
+            if "error" in data:
+                await callback_query.message.reply_text(f"❌ {data['error']}", parse_mode=ParseMode.HTML)
+                return
+
+            key = data.get("key")
+            expiry = data.get("expiry")
+
+            if not key or not expiry:
+                await callback_query.message.reply_text("❌ Failed to retrieve API key. Try again later.", parse_mode=ParseMode.HTML)
+                return
+
+            await callback_query.message.reply_text(
+                f"✅ <b>Your API key:</b>\n<code>{key}</code>\n\n📅 <b>Valid until:</b> {expiry}\n"
+                f"💰 Remaining points: <b>{points_left}</b>",
+                parse_mode=ParseMode.HTML
+            )
+
+        except Exception as e:
+            print(f"Error generating key: {e}")
+            await callback_query.message.reply_text("❌ Failed to generate API key. Try again later.", parse_mode=ParseMode.HTML)
+
+
+# ===================================
+# ===== BOT STARTUP =====
+# ===================================
+
+if __name__ == "__main__":
+    app.run()
