@@ -1,6 +1,6 @@
-fastapi
-uvicorn
+flask
+gunicorn
+requests
 pyrogram
 tgcrypto
-motor
-python-dotenv
+g4f
