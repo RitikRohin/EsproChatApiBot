@@ -336,7 +336,7 @@ async def callback_handler(client, callback_query):
     elif data == "show_payment_menu":
         buttons = [
             [InlineKeyboardButton("💵 ₹100 = 100 Points", callback_data="pay_100_100")],
-            [InlineKeyboardButton("💵 ₹200 = 250 Points", callback_data="pay_200_250")],
+            [InlineKeyboardButton("💵 ₹200 = 200 Points", callback_data="pay_200_200")],
             [InlineKeyboardButton("⬅️ Back", callback_data="back")]
         ]
         await callback_query.message.edit_text(
