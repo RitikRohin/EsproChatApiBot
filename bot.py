@@ -4,9 +4,9 @@ import os
 import httpx
 
 # ===== Environment Variables =====
-API_ID = int(os.environ.get("API_ID", "YOUR_API_ID"))
-API_HASH = os.environ.get("API_HASH", "YOUR_API_HASH")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
+API_ID = int(os.environ.get("API_ID", "123456"))  # Replace with your API_ID
+API_HASH = os.environ.get("API_HASH", "your_api_hash")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "your_bot_token")
 G4F_API_URL = os.environ.get("G4F_API_URL", "https://your-g4f-app.herokuapp.com")
 
 # ===== Initialize Pyrogram Client =====
@@ -32,9 +32,7 @@ async def start_handler(client: Client, message: Message):
 # ===== Help Command =====
 @app.on_message(filters.command("help") & filters.private)
 async def help_handler(client: Client, message: Message):
-    buttons = [
-        [InlineKeyboardButton("⬅️ Back", callback_data="back")]
-    ]
+    buttons = [[InlineKeyboardButton("⬅️ Back", callback_data="back")]]
     await message.reply_text(
         "📌 **Available Commands:**\n\n"
         "✅ `/gen_key` → Generate a 30-day valid API key\n"
@@ -42,6 +40,32 @@ async def help_handler(client: Client, message: Message):
         "⚡ You can also use the buttons below for easy navigation.",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
+
+
+# ===== Gen Key Command =====
+@app.on_message(filters.command("gen_key") & filters.private)
+async def gen_key_handler(client: Client, message: Message):
+    try:
+        async with httpx.AsyncClient(timeout=10) as session:
+            res = await session.post(f"{G4F_API_URL}/gen_key")
+            res.raise_for_status()
+            data = res.json()
+
+        key = data.get("key")
+        expiry = data.get("expiry")
+
+        if not key or not expiry:
+            await message.reply_text("❌ Failed to retrieve key. Try again later.")
+            return
+
+        await message.reply_text(
+            f"✅ **Your API key:**\n`{key}`\n\n📅 **Valid until:** {expiry}",
+            parse_mode="markdown"
+        )
+
+    except Exception as e:
+        print(f"Error generating key: {e}")
+        await message.reply_text("❌ Failed to generate API key. Try again later.")
 
 
 # ===== Callback Handler for Buttons =====
@@ -75,7 +99,7 @@ async def callback_handler(client, callback_query):
             async with httpx.AsyncClient(timeout=10) as session:
                 res = await session.post(f"{G4F_API_URL}/gen_key")
                 res.raise_for_status()
-                data = await res.json()
+                data = res.json()
 
             key = data.get("key")
             expiry = data.get("expiry")
@@ -85,8 +109,8 @@ async def callback_handler(client, callback_query):
                 return
 
             await callback_query.message.reply_text(
-                f"✅ **Your API key:**\n`{key}`\n\n\n📅 **Valid until:** {expiry}",
-                parse_mode=None
+                f"✅ **Your API key:**\n`{key}`\n\n📅 **Valid until:** {expiry}",
+                parse_mode="markdown"
             )
 
         except Exception as e:
